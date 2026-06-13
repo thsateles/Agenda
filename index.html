@@ -15,7 +15,7 @@
   .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
   .prog-label { font-size: 13px; color: #888780; }
   .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #b4b2a9; margin: 1.2rem 0 6px; }
-  .item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 0.5px solid #d3d1c7; background: #fff; margin-bottom: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background 0.15s; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 0.5px solid #d3d1c7; background: #fff; margin-bottom: 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .item:active { background: #f1efe8; }
   .item.done { opacity: 0.4; }
   .item.done .item-text { text-decoration: line-through; }
@@ -24,9 +24,9 @@
   .item-body { flex: 1; min-width: 0; }
   .item-text { font-size: 14px; line-height: 1.45; }
   .item-sub { font-size: 12px; color: #888780; margin-top: 2px; }
-  .date-badge { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 50px; padding: 5px 8px; border-radius: 8px; text-align: center; }
+  .date-badge { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; min-width: 50px; padding: 5px 8px; border-radius: 8px; text-align: center; }
   .date-badge .d-num { font-size: 13px; font-weight: 600; line-height: 1.2; }
-  .date-badge .d-week { font-size: 10px; margin-top: 2px; line-height: 1; opacity: 0.8; }
+  .date-badge .d-week { font-size: 10px; margin-top: 2px; opacity: 0.8; }
   .day-seg { background: #ddeeff; color: #185FA5; }
   .day-ter { background: #eeedfe; color: #3C3489; }
   .day-qua { background: #e6f2d8; color: #3B6D11; }
@@ -35,6 +35,16 @@
   .day-sab { background: #fce8f2; color: #72243E; }
   .day-dom { background: #fce8e8; color: #791F1F; }
   .day-none { background: #f1efe8; color: #888780; }
+  .sync-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; padding: 8px 12px; border-radius: 8px; background: #fff; border: 0.5px solid #d3d1c7; font-size: 13px; color: #888780; }
+  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #b4b2a9; flex-shrink: 0; }
+  .sync-dot.saving { background: #EF9F27; }
+  .sync-dot.saved { background: #1D9E75; }
+  .sync-dot.error { background: #E24B4A; }
+  #setup-screen { padding: 1.5rem; background: #fff; border-radius: 12px; border: 0.5px solid #d3d1c7; margin-bottom: 1rem; }
+  #setup-screen p { font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 1rem; }
+  #setup-screen input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #d3d1c7; font-size: 14px; margin-bottom: 10px; font-family: monospace; }
+  #setup-screen button { width: 100%; padding: 10px; border-radius: 8px; background: #1D9E75; color: #fff; border: none; font-size: 14px; cursor: pointer; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
@@ -44,10 +54,25 @@
     <span class="prog-label" id="prog-label">0 / 19 concluídos</span>
   </div>
   <div class="subtitle">Toque em um item para marcar como concluído</div>
-  <div class="progress-bar-track"><div class="progress-bar-fill" id="prog-bar" style="width:0%"></div></div>
+
+  <div id="setup-screen">
+    <p>Para salvar na nuvem e sincronizar entre dispositivos, coloca sua chave do <strong>JSONBin</strong>:<br><br>
+    1. Acessa <strong>jsonbin.io</strong> → cria conta gratuita<br>
+    2. Vai em <strong>API Keys</strong> → copia a chave<br>
+    3. Cola aqui abaixo:</p>
+    <input type="text" id="api-key-input" placeholder="$2a$10$..." />
+    <button onclick="setupKey()">Salvar e continuar</button>
+  </div>
+
+  <div class="sync-bar hidden" id="sync-bar">
+    <div class="sync-dot" id="sync-dot"></div>
+    <span id="sync-text">Carregando...</span>
+  </div>
+  <div class="progress-bar-track hidden" id="progress-wrap"><div class="progress-bar-fill" id="prog-bar" style="width:0%"></div></div>
   <div id="list"></div>
 </div>
 <script>
+var STORAGE_KEY = 'thsateles_agenda_2026';
 var items = [
   { date: "16/06", text: "Examen Final de Caso Clínico", sub: "Semiología cardíaca", cat: "Junho" },
   { date: "17/06", text: "Examen práctico de Anatomía", sub: "MMSS y MMII", cat: "Junho" },
@@ -69,75 +94,130 @@ var items = [
   { date: null, text: "Bioquímica — Examen Final Teórico", sub: "Buscar fecha", cat: "Sem data" },
   { date: null, text: "Inglés — Examen Final Teórico", sub: "Buscar fecha", cat: "Sem data" }
 ];
-
 var weekClass = ['day-dom','day-seg','day-ter','day-qua','day-qui','day-sex','day-sab'];
 var weekLabel = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-
-function getDateInfo(dateStr) {
-  if (!dateStr) return null;
-  var parts = dateStr.split('/');
-  var d = parseInt(parts[0]), m = parseInt(parts[1]);
-  var year = 2026;
-  var dt = new Date(year, m - 1, d);
-  var wd = dt.getDay();
+function getDateInfo(s) {
+  if (!s) return null;
+  var p = s.split('/'); var dt = new Date(2026, parseInt(p[1])-1, parseInt(p[0])); var wd = dt.getDay();
   return { cls: weekClass[wd], label: weekLabel[wd] };
 }
+var state = {}; var BIN_URL = null; var API_KEY = '$2a$10$ki1ZoBx4sVnenzP.1VFSJ.OfIEW3WL7/WrPxMTkpUsJPZYxuCXi9W'; var saveTimer = null;
 
-var state = {};
-try { state = JSON.parse(localStorage.getItem('agenda_v3') || '{}'); } catch(e) {}
+function setSyncStatus(status, text) {
+  var dot = document.getElementById('sync-dot'), txt = document.getElementById('sync-text');
+  dot.className = 'sync-dot ' + status; txt.textContent = text;
+}
 
-var list = document.getElementById('list');
-var lastCat = null;
+function setupKey() {
+  var key = document.getElementById('api-key-input').value.trim();
+  if (!key) return;
+  API_KEY = key;
+  try { localStorage.setItem(STORAGE_KEY + '_apikey', key); } catch(e){}
+  document.getElementById('setup-screen').classList.add('hidden');
+  document.getElementById('sync-bar').classList.remove('hidden');
+  document.getElementById('progress-wrap').classList.remove('hidden');
+  loadState();
+}
 
-for (var i = 0; i < items.length; i++) {
-  (function(idx) {
-    var item = items[idx];
-    if (item.cat !== lastCat) {
-      var sec = document.createElement('div');
-      sec.className = 'section-label';
-      sec.textContent = item.cat;
-      list.appendChild(sec);
-      lastCat = item.cat;
-    }
-    var info = getDateInfo(item.date);
-    var div = document.createElement('div');
-    div.className = 'item' + (state[idx] ? ' done' : '');
+function init() { document.getElementById('setup-screen').classList.add('hidden'); document.getElementById('sync-bar').classList.remove('hidden'); document.getElementById('progress-wrap').classList.remove('hidden'); loadState(); return; 
+  var savedKey = null;
+  try { savedKey = localStorage.getItem(STORAGE_KEY + '_apikey'); } catch(e){}
+  if (savedKey) {
+    API_KEY = savedKey;
+    document.getElementById('setup-screen').classList.add('hidden');
+    document.getElementById('sync-bar').classList.remove('hidden');
+    document.getElementById('progress-wrap').classList.remove('hidden');
+    loadState();
+  }
+  // else setup screen stays visible
+}
 
-    var badgeHtml;
-    if (info) {
-      badgeHtml = '<div class="date-badge ' + info.cls + '"><span class="d-num">' + item.date + '</span><span class="d-week">' + info.label + '</span></div>';
-    } else {
-      badgeHtml = '<div class="date-badge day-none"><span class="d-num">—</span><span class="d-week">s/data</span></div>';
-    }
-
-    div.innerHTML =
-      '<div class="check-btn' + (state[idx] ? ' checked' : '') + '">✓</div>' +
-      '<div class="item-body">' +
-        '<div class="item-text">' + item.text + '</div>' +
-        (item.sub ? '<div class="item-sub">' + item.sub + '</div>' : '') +
-      '</div>' +
-      badgeHtml;
-
-    div.addEventListener('click', function() {
-      state[idx] = !state[idx];
-      try { localStorage.setItem('agenda_v3', JSON.stringify(state)); } catch(e) {}
-      div.classList.toggle('done', state[idx]);
-      div.querySelector('.check-btn').classList.toggle('checked', state[idx]);
-      updateProgress();
+function loadState() {
+  setSyncStatus('saving', 'Carregando...');
+  var savedBinUrl = null;
+  try { savedBinUrl = localStorage.getItem(STORAGE_KEY + '_bin'); } catch(e){}
+  if (savedBinUrl) {
+    BIN_URL = savedBinUrl;
+    fetch(BIN_URL + '/latest', { headers: { 'X-Access-Key': API_KEY } })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        state = (data.record && data.record.state) ? data.record.state : {};
+        renderList(); updateProgress(); setSyncStatus('saved', 'Sincronizado ✓');
+      })
+      .catch(function() {
+        try { state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e){ state={}; }
+        renderList(); updateProgress(); setSyncStatus('error', 'Sem internet — salvo localmente');
+      });
+  } else {
+    fetch('https://api.jsonbin.io/v3/b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Access-Key': API_KEY, 'X-Bin-Name': 'agenda-semestre' },
+      body: JSON.stringify({ state: {} })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      BIN_URL = 'https://api.jsonbin.io/v3/b/' + data.metadata.id;
+      try { localStorage.setItem(STORAGE_KEY + '_bin', BIN_URL); } catch(e){}
+      renderList(); updateProgress(); setSyncStatus('saved', 'Pronto ✓');
+    })
+    .catch(function() {
+      renderList(); updateProgress(); setSyncStatus('error', 'Erro ao conectar — verifique a chave');
     });
+  }
+}
 
-    list.appendChild(div);
-  })(i);
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){}
+  if (!BIN_URL || !API_KEY) { setSyncStatus('error', 'Salvo localmente'); return; }
+  setSyncStatus('saving', 'Salvando...');
+  fetch(BIN_URL, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Access-Key': API_KEY },
+    body: JSON.stringify({ state: state })
+  })
+  .then(function() { setSyncStatus('saved', 'Sincronizado ✓'); })
+  .catch(function() { setSyncStatus('error', 'Salvo localmente (sem internet)'); });
+}
+
+function debouncedSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveState, 800);
+}
+
+var listEl = document.getElementById('list');
+function renderList() {
+  listEl.innerHTML = ''; var lastCat = null;
+  for (var i = 0; i < items.length; i++) {
+    (function(idx) {
+      var item = items[idx];
+      if (item.cat !== lastCat) {
+        var sec = document.createElement('div'); sec.className = 'section-label'; sec.textContent = item.cat; listEl.appendChild(sec); lastCat = item.cat;
+      }
+      var info = getDateInfo(item.date);
+      var div = document.createElement('div'); div.className = 'item' + (state[idx] ? ' done' : '');
+      var badge = info
+        ? '<div class="date-badge ' + info.cls + '"><span class="d-num">' + item.date + '</span><span class="d-week">' + info.label + '</span></div>'
+        : '<div class="date-badge day-none"><span class="d-num">—</span><span class="d-week">s/data</span></div>';
+      div.innerHTML = '<div class="check-btn' + (state[idx] ? ' checked' : '') + '">✓</div><div class="item-body"><div class="item-text">' + item.text + '</div>' + (item.sub ? '<div class="item-sub">' + item.sub + '</div>' : '') + '</div>' + badge;
+      div.addEventListener('click', function() {
+        state[idx] = !state[idx];
+        div.classList.toggle('done', state[idx]);
+        div.querySelector('.check-btn').classList.toggle('checked', state[idx]);
+        updateProgress(); debouncedSave();
+      });
+      listEl.appendChild(div);
+    })(i);
+  }
 }
 
 function updateProgress() {
-  var done = 0;
-  for (var k in state) { if (state[k]) done++; }
+  var done = 0; for (var k in state) { if (state[k]) done++; }
   var pct = Math.round(done / items.length * 100);
   document.getElementById('prog-bar').style.width = pct + '%';
   document.getElementById('prog-label').textContent = done + ' / ' + items.length + ' concluídos';
 }
-updateProgress();
+
+init();
 </script>
 </body>
 </html>
