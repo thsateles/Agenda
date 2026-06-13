@@ -35,16 +35,14 @@
   .day-sab { background: #fce8f2; color: #72243E; }
   .day-dom { background: #fce8e8; color: #791F1F; }
   .day-none { background: #f1efe8; color: #888780; }
-  .sync-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; padding: 8px 12px; border-radius: 8px; background: #fff; border: 0.5px solid #d3d1c7; font-size: 13px; color: #888780; }
+  .sync-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 1rem; padding: 8px 12px; border-radius: 8px; background: #fff; border: 0.5px solid #d3d1c7; font-size: 13px; color: #888780; }
+  .sync-left { display: flex; align-items: center; gap: 8px; }
   .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #b4b2a9; flex-shrink: 0; }
   .sync-dot.saving { background: #EF9F27; }
   .sync-dot.saved { background: #1D9E75; }
   .sync-dot.error { background: #E24B4A; }
-  #setup-screen { padding: 1.5rem; background: #fff; border-radius: 12px; border: 0.5px solid #d3d1c7; margin-bottom: 1rem; }
-  #setup-screen p { font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 1rem; }
-  #setup-screen input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #d3d1c7; font-size: 14px; margin-bottom: 10px; font-family: monospace; }
-  #setup-screen button { width: 100%; padding: 10px; border-radius: 8px; background: #1D9E75; color: #fff; border: none; font-size: 14px; cursor: pointer; }
-  .hidden { display: none !important; }
+  .copy-btn { font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 0.5px solid #d3d1c7; background: #f1efe8; color: #444; cursor: pointer; white-space: nowrap; }
+  .copy-btn:active { background: #e0dfd8; }
 </style>
 </head>
 <body>
@@ -54,25 +52,18 @@
     <span class="prog-label" id="prog-label">0 / 19 concluídos</span>
   </div>
   <div class="subtitle">Toque em um item para marcar como concluído</div>
-
-  <div id="setup-screen">
-    <p>Para salvar na nuvem e sincronizar entre dispositivos, coloca sua chave do <strong>JSONBin</strong>:<br><br>
-    1. Acessa <strong>jsonbin.io</strong> → cria conta gratuita<br>
-    2. Vai em <strong>API Keys</strong> → copia a chave<br>
-    3. Cola aqui abaixo:</p>
-    <input type="text" id="api-key-input" placeholder="$2a$10$..." />
-    <button onclick="setupKey()">Salvar e continuar</button>
+  <div class="sync-bar">
+    <div class="sync-left">
+      <div class="sync-dot saved" id="sync-dot"></div>
+      <span id="sync-text">Salvo localmente</span>
+    </div>
+    <button class="copy-btn" onclick="copyLink()">📋 Copiar link com progresso</button>
   </div>
-
-  <div class="sync-bar hidden" id="sync-bar">
-    <div class="sync-dot" id="sync-dot"></div>
-    <span id="sync-text">Carregando...</span>
-  </div>
-  <div class="progress-bar-track hidden" id="progress-wrap"><div class="progress-bar-fill" id="prog-bar" style="width:0%"></div></div>
+  <div class="progress-bar-track"><div class="progress-bar-fill" id="prog-bar" style="width:0%"></div></div>
   <div id="list"></div>
 </div>
 <script>
-var STORAGE_KEY = 'thsateles_agenda_2026';
+var STORAGE_KEY = 'agenda_semestre_2026';
 var items = [
   { date: "16/06", text: "Examen Final de Caso Clínico", sub: "Semiología cardíaca", cat: "Junho" },
   { date: "17/06", text: "Examen práctico de Anatomía", sub: "MMSS y MMII", cat: "Junho" },
@@ -96,93 +87,54 @@ var items = [
 ];
 var weekClass = ['day-dom','day-seg','day-ter','day-qua','day-qui','day-sex','day-sab'];
 var weekLabel = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
 function getDateInfo(s) {
   if (!s) return null;
-  var p = s.split('/'); var dt = new Date(2026, parseInt(p[1])-1, parseInt(p[0])); var wd = dt.getDay();
-  return { cls: weekClass[wd], label: weekLabel[wd] };
-}
-var state = {}; var BIN_URL = null; var API_KEY = '$2a$10$ki1ZoBx4sVnenzP.1VFSJ.OfIEW3WL7/WrPxMTkpUsJPZYxuCXi9W'; var saveTimer = null;
-
-function setSyncStatus(status, text) {
-  var dot = document.getElementById('sync-dot'), txt = document.getElementById('sync-text');
-  dot.className = 'sync-dot ' + status; txt.textContent = text;
+  var p = s.split('/'); var dt = new Date(2026, parseInt(p[1])-1, parseInt(p[0]));
+  var wd = dt.getDay(); return { cls: weekClass[wd], label: weekLabel[wd] };
 }
 
-function setupKey() {
-  var key = document.getElementById('api-key-input').value.trim();
-  if (!key) return;
-  API_KEY = key;
-  try { localStorage.setItem(STORAGE_KEY + '_apikey', key); } catch(e){}
-  document.getElementById('setup-screen').classList.add('hidden');
-  document.getElementById('sync-bar').classList.remove('hidden');
-  document.getElementById('progress-wrap').classList.remove('hidden');
-  loadState();
-}
-
-function init() { document.getElementById('setup-screen').classList.add('hidden'); document.getElementById('sync-bar').classList.remove('hidden'); document.getElementById('progress-wrap').classList.remove('hidden'); loadState(); return; 
-  var savedKey = null;
-  try { savedKey = localStorage.getItem(STORAGE_KEY + '_apikey'); } catch(e){}
-  if (savedKey) {
-    API_KEY = savedKey;
-    document.getElementById('setup-screen').classList.add('hidden');
-    document.getElementById('sync-bar').classList.remove('hidden');
-    document.getElementById('progress-wrap').classList.remove('hidden');
-    loadState();
-  }
-  // else setup screen stays visible
-}
-
+// Load state: prefer URL hash, then localStorage
+var state = {};
 function loadState() {
-  setSyncStatus('saving', 'Carregando...');
-  var savedBinUrl = null;
-  try { savedBinUrl = localStorage.getItem(STORAGE_KEY + '_bin'); } catch(e){}
-  if (savedBinUrl) {
-    BIN_URL = savedBinUrl;
-    fetch(BIN_URL + '/latest', { headers: { 'X-Access-Key': API_KEY } })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        state = (data.record && data.record.state) ? data.record.state : {};
-        renderList(); updateProgress(); setSyncStatus('saved', 'Sincronizado ✓');
-      })
-      .catch(function() {
-        try { state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e){ state={}; }
-        renderList(); updateProgress(); setSyncStatus('error', 'Sem internet — salvo localmente');
-      });
-  } else {
-    fetch('https://api.jsonbin.io/v3/b', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Access-Key': API_KEY, 'X-Bin-Name': 'agenda-semestre' },
-      body: JSON.stringify({ state: {} })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      BIN_URL = 'https://api.jsonbin.io/v3/b/' + data.metadata.id;
-      try { localStorage.setItem(STORAGE_KEY + '_bin', BIN_URL); } catch(e){}
-      renderList(); updateProgress(); setSyncStatus('saved', 'Pronto ✓');
-    })
-    .catch(function() {
-      renderList(); updateProgress(); setSyncStatus('error', 'Erro ao conectar — verifique a chave');
-    });
+  var hash = window.location.hash.slice(1);
+  if (hash) {
+    try {
+      state = JSON.parse(atob(hash));
+      // persist to localStorage too
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){}
+      // clean URL without losing page
+      history.replaceState(null, '', window.location.pathname);
+      return;
+    } catch(e) {}
   }
+  try { state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) { state = {}; }
 }
 
 function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){}
-  if (!BIN_URL || !API_KEY) { setSyncStatus('error', 'Salvo localmente'); return; }
-  setSyncStatus('saving', 'Salvando...');
-  fetch(BIN_URL, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Access-Key': API_KEY },
-    body: JSON.stringify({ state: state })
-  })
-  .then(function() { setSyncStatus('saved', 'Sincronizado ✓'); })
-  .catch(function() { setSyncStatus('error', 'Salvo localmente (sem internet)'); });
 }
 
-function debouncedSave() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveState, 800);
+function copyLink() {
+  var encoded = btoa(JSON.stringify(state));
+  var url = window.location.origin + window.location.pathname + '#' + encoded;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function() {
+      document.getElementById('sync-text').textContent = 'Link copiado! ✓';
+      setTimeout(function(){ document.getElementById('sync-text').textContent = 'Salvo localmente'; }, 2500);
+    });
+  } else {
+    // fallback for older iOS
+    var ta = document.createElement('textarea');
+    ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    document.getElementById('sync-text').textContent = 'Link copiado! ✓';
+    setTimeout(function(){ document.getElementById('sync-text').textContent = 'Salvo localmente'; }, 2500);
+  }
 }
+
+loadState();
 
 var listEl = document.getElementById('list');
 function renderList() {
@@ -191,7 +143,8 @@ function renderList() {
     (function(idx) {
       var item = items[idx];
       if (item.cat !== lastCat) {
-        var sec = document.createElement('div'); sec.className = 'section-label'; sec.textContent = item.cat; listEl.appendChild(sec); lastCat = item.cat;
+        var sec = document.createElement('div'); sec.className = 'section-label';
+        sec.textContent = item.cat; listEl.appendChild(sec); lastCat = item.cat;
       }
       var info = getDateInfo(item.date);
       var div = document.createElement('div'); div.className = 'item' + (state[idx] ? ' done' : '');
@@ -203,7 +156,7 @@ function renderList() {
         state[idx] = !state[idx];
         div.classList.toggle('done', state[idx]);
         div.querySelector('.check-btn').classList.toggle('checked', state[idx]);
-        updateProgress(); debouncedSave();
+        updateProgress(); saveState();
       });
       listEl.appendChild(div);
     })(i);
@@ -217,7 +170,8 @@ function updateProgress() {
   document.getElementById('prog-label').textContent = done + ' / ' + items.length + ' concluídos';
 }
 
-init();
+renderList();
+updateProgress();
 </script>
 </body>
 </html>
